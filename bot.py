@@ -47,7 +47,8 @@ ADMIN_IDS = [int(x.strip()) for x in ADMIN_ID_RAW.split(",") if x.strip().isdigi
 # Constants — FIXED: Each on separate line
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 DEFAULT_TEMP = 0.7
-DEFAULT_MAX_TOKENS = 1000DEFAULT_TOP_P = 1.0
+DEFAULT_MAX_TOKENS = 1000
+DEFAULT_TOP_P = 1.0
 FREE_DAILY_LIMIT = 50
 PREMIUM_BADGE = "👑 "
 
