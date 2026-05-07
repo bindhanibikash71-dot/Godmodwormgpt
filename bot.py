@@ -36,23 +36,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ========================
-# DATABASE
+# DATABASE CLASS
 # ========================
-class DB:
+class Database:
     def __init__(self):
         self.conn = sqlite3.connect(DB_NAME, check_same_thread=False)
         self.cursor = self.conn.cursor()
         self.init_db()
 
     def init_db(self):
+        # Users table
         self.cursor.execute("""CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,            first_name TEXT,
+            user_id INTEGER PRIMARY KEY,            username TEXT,
+            first_name TEXT,
             last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             messages_today INTEGER DEFAULT 0,
             last_reset_date DATE,
             is_banned INTEGER DEFAULT 0
         )""")
+        # History table
         self.cursor.execute("""CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
@@ -60,12 +62,14 @@ class DB:
             content TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
+        # Premium table
         self.cursor.execute("""CREATE TABLE IF NOT EXISTS premium_users (
             user_id INTEGER PRIMARY KEY,
             plan_type TEXT,
             expiry_date TIMESTAMP,
             is_active INTEGER DEFAULT 1
         )""")
+        # Payments table
         self.cursor.execute("""CREATE TABLE IF NOT EXISTS payments (
             payment_id TEXT PRIMARY KEY,
             user_id INTEGER,
@@ -74,11 +78,12 @@ class DB:
             plan_type TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
+        # Config table
         self.cursor.execute("""CREATE TABLE IF NOT EXISTS config (
             key TEXT PRIMARY KEY,
             value TEXT
         )""")
-        # Init defaults
+        # Insert defaults if empty
         self.cursor.execute("SELECT count(*) FROM config")
         if self.cursor.fetchone()[0] == 0:
             defaults = [
@@ -92,13 +97,15 @@ class DB:
             ]
             self.cursor.executemany("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", defaults)
         self.conn.commit()
-
     def add_user(self, user_id, username, first_name):
         try:
-            self.cursor.execute("INSERT INTO users (user_id, username, first_name) VALUES (?, ?, ?)",
-                              (user_id, username, first_name))            self.conn.commit()
+            self.cursor.execute(
+                "INSERT INTO users (user_id, username, first_name) VALUES (?, ?, ?)",
+                (user_id, username, first_name)
+            )
+            self.conn.commit()
         except sqlite3.IntegrityError:
-            pass
+            pass  # User already exists
 
     def get_user(self, user_id):
         self.cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -106,34 +113,54 @@ class DB:
 
     def update_last_active(self, user_id):
         today = datetime.date.today().isoformat()
-        self.cursor.execute("""UPDATE users SET last_active = CURRENT_TIMESTAMP,
-            messages_today = CASE WHEN last_reset_date != ? THEN 1 ELSE messages_today + 1 END,
-            last_reset_date = CASE WHEN last_reset_date != ? THEN ? ELSE last_reset_date END
-            WHERE user_id = ?""", (today, today, today, user_id))
+        self.cursor.execute("""
+            UPDATE users SET 
+                last_active = CURRENT_TIMESTAMP,
+                messages_today = CASE WHEN last_reset_date != ? THEN 1 ELSE messages_today + 1 END,
+                last_reset_date = CASE WHEN last_reset_date != ? THEN ? ELSE last_reset_date END
+            WHERE user_id = ?
+        """, (today, today, today, user_id))
         self.conn.commit()
 
     def is_premium(self, user_id):
-        self.cursor.execute("SELECT expiry_date FROM premium_users WHERE user_id = ? AND is_active = 1", (user_id,))
+        self.cursor.execute(
+            "SELECT expiry_date FROM premium_users WHERE user_id = ? AND is_active = 1",
+            (user_id,)
+        )
         row = self.cursor.fetchone()
         if not row:
             return False
-        return datetime.datetime.fromisoformat(row[0]) > datetime.datetime.now()
+        expiry = datetime.datetime.fromisoformat(row[0])
+        return expiry > datetime.datetime.now()
 
     def add_premium(self, user_id, plan_type, days):
         start = datetime.datetime.now()
-        expiry = start + datetime.timedelta(days=days) if plan_type != 'lifetime' else datetime.datetime(2099, 12, 31)
-        self.cursor.execute("""INSERT INTO premium_users (user_id, plan_type, expiry_date, is_active)
-            VALUES (?, ?, ?, 1) ON CONFLICT(user_id) DO UPDATE SET
-            plan_type = excluded.plan_type, expiry_date = excluded.expiry_date, is_active = 1""",
-            (user_id, plan_type, expiry.isoformat()))
+        if plan_type == 'lifetime':
+            expiry = datetime.datetime(2099, 12, 31)
+        else:
+            expiry = start + datetime.timedelta(days=days)
+        
+        self.cursor.execute("""
+            INSERT INTO premium_users (user_id, plan_type, expiry_date, is_active)
+            VALUES (?, ?, ?, 1)
+            ON CONFLICT(user_id) DO UPDATE SET
+                plan_type = excluded.plan_type,
+                expiry_date = excluded.expiry_date,                is_active = 1
+        """, (user_id, plan_type, expiry.isoformat()))
         self.conn.commit()
 
     def add_history(self, user_id, role, content):
-        self.cursor.execute("INSERT INTO history (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, content))
+        self.cursor.execute(
+            "INSERT INTO history (user_id, role, content) VALUES (?, ?, ?)",
+            (user_id, role, content)
+        )
         self.conn.commit()
 
     def get_history(self, user_id, limit=10):
-        self.cursor.execute("SELECT role, content FROM history WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit))
+        self.cursor.execute(
+            "SELECT role, content FROM history WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+            (user_id, limit)
+        )
         rows = self.cursor.fetchall()
         return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
 
@@ -145,21 +172,32 @@ class DB:
         self.cursor.execute("SELECT value FROM config WHERE key = ?", (key,))
         row = self.cursor.fetchone()
         return row[0] if row else ""
+
     def set_config(self, key, value):
-        self.cursor.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
+        self.cursor.execute(
+            "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+            (key, value)
+        )
         self.conn.commit()
 
     def add_payment(self, payment_id, user_id, amount, plan_type):
-        self.cursor.execute("INSERT INTO payments (payment_id, user_id, amount, status, plan_type) VALUES (?, ?, ?, 'PENDING', ?)",
-                          (payment_id, user_id, amount, plan_type))
+        self.cursor.execute(
+            "INSERT INTO payments (payment_id, user_id, amount, status, plan_type) VALUES (?, ?, ?, 'PENDING', ?)",
+            (payment_id, user_id, amount, plan_type)
+        )
         self.conn.commit()
 
     def update_payment_status(self, payment_id, status):
-        self.cursor.execute("UPDATE payments SET status = ? WHERE payment_id = ?", (status, payment_id))
+        self.cursor.execute(
+            "UPDATE payments SET status = ? WHERE payment_id = ?",
+            (status, payment_id)
+        )
         self.conn.commit()
 
-    def get_pending_payment(self, payment_id):
-        self.cursor.execute("SELECT * FROM payments WHERE payment_id = ? AND status = 'PENDING'", (payment_id,))
+    def get_pending_payment(self, payment_id):        self.cursor.execute(
+            "SELECT * FROM payments WHERE payment_id = ? AND status = 'PENDING'",
+            (payment_id,)
+        )
         return self.cursor.fetchone()
 
     def get_stats(self):
@@ -175,13 +213,16 @@ class DB:
         return [row[0] for row in self.cursor.fetchall()]
 
     def ban_user(self, user_id):
-        self.cursor.execute("UPDATE users SET is_banned = 1 WHERE user_id = ?", (user_id,))
+        self.cursor.execute(
+            "UPDATE users SET is_banned = 1 WHERE user_id = ?",
+            (user_id,)
+        )
         self.conn.commit()
 
-db = DB()
+db = Database()
 
 # ========================
-# OPENROUTER
+# OPENROUTER CLIENT
 # ========================
 class AIClient:
     def __init__(self):
@@ -194,17 +235,17 @@ class AIClient:
             "X-Title": "Telegram AI Bot"
         }
 
-    def generate(self, messages, model, temp, max_tokens, top_p):        payload = {
+    def generate_response(self, messages, model, temp, max_tokens, top_p):
+        payload = {
             "model": model,
             "messages": messages,
             "temperature": temp,
             "max_tokens": max_tokens,
             "top_p": top_p
         }
-        try:
-            resp = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
+        try:            response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
+            response.raise_for_status()
+            data = response.json()
             if 'choices' in data and len(data['choices']) > 0:
                 return data['choices'][0]['message']['content']
             return "Sorry, I encountered an error."
@@ -215,7 +256,7 @@ class AIClient:
 ai_client = AIClient()
 
 # ========================
-# CASHFREE
+# CASHFREE CLIENT
 # ========================
 class PaymentClient:
     def __init__(self):
@@ -243,14 +284,14 @@ class PaymentClient:
             }
         }
         try:
-            resp = requests.post(url, headers=headers, json=payload)            resp.raise_for_status()
-            return resp.json()
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()
         except Exception as e:
             logger.error(f"Cashfree Error: {e}")
             return None
 
 payment_client = PaymentClient()
-
 # ========================
 # HELPERS
 # ========================
@@ -270,70 +311,86 @@ def get_plan_details(plan):
     return plans.get(plan, plans["1month"])
 
 # ========================
-# COMMANDS
+# COMMAND HANDLERS
 # ========================
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     db.add_user(user.id, user.username, user.first_name)
+    
     if is_banned(user.id):
-        await update.message.reply_text("You are banned.")
+        await update.message.reply_text("You are banned from using this bot.")
         return
-    welcome = db.get_config("welcome_msg")
-    kb = [
-        [InlineKeyboardButton("🤖 AI Chat", callback_data="ai")],
-        [InlineKeyboardButton("👑 Buy Premium", callback_data="premium")],
-        [InlineKeyboardButton("👤 Profile", callback_data="profile")]
-    ]
-    await update.message.reply_text(welcome, reply_markup=InlineKeyboardMarkup(kb))
 
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    welcome_msg = db.get_config("welcome_msg")
+    keyboard = [
+        [InlineKeyboardButton("🤖 AI Chat", callback_data="menu_ai")],
+        [InlineKeyboardButton("👑 Buy Premium", callback_data="menu_premium")],
+        [InlineKeyboardButton("👤 My Profile", callback_data="menu_profile")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(welcome_msg, reply_markup=reply_markup)
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Use /start to begin. Admins: /admin")
 
-async def newchat_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def new_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.clear_history(update.effective_user.id)
-    await update.message.reply_text("🔄 Chat reset!")
+    await update.message.reply_text("🔄 Conversation memory reset!")
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if not update.message or not update.message.text or update.message.text.startswith('/'):
+    if not update.message or not update.message.text:
         return
+    if update.message.text.startswith('/'):        return
     if is_banned(user.id):
         return
+
     user_data = db.get_user(user.id)
     if not db.is_premium(user.id) and user_data[4] >= FREE_DAILY_LIMIT:  # messages_today index
-        await update.message.reply_text("❌ Daily limit reached. Upgrade to Premium!")
+        await update.message.reply_text(
+            "❌ You have reached your daily free limit (50 messages).\nUpgrade to *God Mode* for unlimited chats!",
+            parse_mode=ParseMode.MARKDOWN
+        )
         return
+
     await context.bot.send_chat_action(chat_id=user.id, action=ChatAction.TYPING)
+
     system_prompt = db.get_config("system_prompt")
     model = db.get_config("current_model")
     temp = float(db.get_config("temperature"))
     max_tokens = int(db.get_config("max_tokens"))
     top_p = float(db.get_config("top_p"))
+
     history = db.get_history(user.id, limit=10)
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": update.message.text}]
+
     db.add_history(user.id, "user", update.message.text)
     db.update_last_active(user.id)
-    response = ai_client.generate(messages, model, temp, max_tokens, top_p)
-    db.add_history(user.id, "assistant", response)
-    await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
+
+    response_text = ai_client.generate_response(messages, model, temp, max_tokens, top_p)
+    db.add_history(user.id, "assistant", response_text)
+
+    await update.message.reply_text(response_text, parse_mode=ParseMode.MARKDOWN)
 
 # ========================
-# CALLBACKS
+# CALLBACK QUERY HANDLER
 # ========================
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
     user_id = query.from_user.id
     data = query.data
-    if data == "ai":
-        await query.edit_message_text("🤖 Send me a message to chat!")
-    elif data == "profile":
+
+    if data == "menu_ai":
+        await query.edit_message_text("🤖 Send me a message to start chatting!")
+    elif data == "menu_profile":
         user = db.get_user(user_id)
         is_prem = db.is_premium(user_id)
-        text = f"👤 *Profile*\nID: `{user_id}`\nName: {user[2]}\nPlan: {'Premium' if is_prem else 'Free'}"
+        text = f"👤 *Profile*\n\n*ID:* `{user_id}`\n*Name:* {user[2]}\n*Plan:* {'Premium' if is_prem else 'Free'}"
         await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
-    elif data == "premium":
-        kb = [
-            [InlineKeyboardButton("1 Month - ₹199", callback_data="buy_1month")],
+    elif data == "menu_premium":
+        kb = [            [InlineKeyboardButton("1 Month - ₹199", callback_data="buy_1month")],
             [InlineKeyboardButton("3 Months - ₹499", callback_data="buy_3month")],
             [InlineKeyboardButton("Lifetime - ₹1499", callback_data="buy_lifetime")]
         ]
@@ -341,69 +398,78 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("buy_"):
         plan_key = data.split("_")[1]
         plan = get_plan_details(plan_key)
-        order_id = f"ORD_{user_id}_{int(time.time())}"        db.add_payment(order_id, user_id, plan['price'], plan_key)
-        cf_resp = payment_client.create_order(order_id, plan['price'], query.from_user.first_name)
-        if cf_resp and 'redirect_url' in cf_resp:
-            kb = [[InlineKeyboardButton("Pay Now 💳", url=cf_resp['redirect_url'])]]
-            await query.edit_message_text(f"💰 Order: {plan['name']}\nAmount: ₹{plan['price']}", reply_markup=InlineKeyboardMarkup(kb))
+        order_id = f"ORD_{user_id}_{int(time.time())}"
+        db.add_payment(order_id, user_id, plan['price'], plan_key)
+        
+        cf_response = payment_client.create_order(order_id, plan['price'], query.from_user.first_name)
+        if cf_response and 'redirect_url' in cf_response:
+            kb = [[InlineKeyboardButton("Pay Now 💳", url=cf_response['redirect_url'])]]
+            await query.edit_message_text(
+                f"💰 *Order Created*\n\nPlan: {plan['name']}\nAmount: ₹{plan['price']}\n\nClick below to pay.",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
         else:
-            await query.edit_message_text("Payment error. Contact admin.")
+            await query.edit_message_text("❌ Payment gateway error. Please contact admin.")
 
 # ========================
-# ADMIN
+# ADMIN COMMANDS
 # ========================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
     stats = db.get_stats()
-    text = f"📊 *Admin Panel*\nUsers: {stats['total_users']}\nPremium: {stats['premium_users']}"
+    text = f"📊 *Admin Panel*\n\nTotal Users: {stats['total_users']}\nPremium Users: {stats['premium_users']}"
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 async def set_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id) or not context.args:
         return
     db.set_config("current_model", context.args[0])
-    await update.message.reply_text(f"✅ Model set to: {context.args[0]}")
+    await update.message.reply_text(f"✅ Model updated to: `{context.args[0]}`", parse_mode=ParseMode.MARKDOWN)
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id) or not context.args:
         return
-    msg = " ".join(context.args)
+    message = " ".join(context.args)
     users = db.get_all_users()
     sent = 0
     for uid in users:
         try:
-            await context.bot.send_message(uid, msg)
+            await context.bot.send_message(uid, message)
             sent += 1
         except:
-            pass
-    await update.message.reply_text(f"✅ Broadcasted to {sent} users.")
+            pass    await update.message.reply_text(f"✅ Broadcast sent to {sent} users.")
 
-async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id) or not context.args:
         return
     db.ban_user(int(context.args[0]))
-    await update.message.reply_text("🚫 User banned.")
+    await update.message.reply_text(f"🚫 User {context.args[0]} banned.")
 
 # ========================
-# MAIN
+# MAIN FUNCTION
 # ========================
 def main():
     if not TELEGRAM_BOT_TOKEN:
-        logger.error("❌ TELEGRAM_BOT_TOKEN missing!")        sys.exit(1)
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("newchat", newchat_cmd))
-    app.add_handler(CommandHandler("admin", admin_panel))
-    app.add_handler(CommandHandler("setmodel", set_model))
-    app.add_handler(CommandHandler("broadcast", broadcast))
-    app.add_handler(CommandHandler("ban", ban_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(button_callback))
-    logger.info("✅ Bot starting...")
+        logger.error("❌ TELEGRAM_BOT_TOKEN not found in environment variables.")
+        sys.exit(1)
+
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("newchat", new_chat_command))
+    application.add_handler(CommandHandler("admin", admin_panel))
+    application.add_handler(CommandHandler("setmodel", set_model))
+    application.add_handler(CommandHandler("broadcast", broadcast))
+    application.add_handler(CommandHandler("ban", ban_user_cmd))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CallbackQueryHandler(button_callback))
+
+    logger.info("✅ Bot starting in polling mode...")
     print("✅ Bot started successfully!")
-    app.run_polling()
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
