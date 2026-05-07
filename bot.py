@@ -45,7 +45,7 @@ CASHFREE_SECRET_KEY = os.getenv("CASHFREE_SECRET_KEY")
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_ID_RAW.split(",") if x.strip().isdigit()]
 
 # Constants — FIXED: Each on separate line
-DEFAULT_MODEL = "openai/gpt-4o-mini"
+DEFAULT_MODEL = "openai/gpt-oss-120b:free"
 DEFAULT_TEMP = 0.7
 DEFAULT_MAX_TOKENS = 1000
 DEFAULT_TOP_P = 1.0
