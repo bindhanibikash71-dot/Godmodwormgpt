@@ -44,11 +44,10 @@ CASHFREE_SECRET_KEY = os.getenv("CASHFREE_SECRET_KEY")
 # Convert ADMIN_ID to list of integers
 ADMIN_IDS = [int(x.strip()) for x in ADMIN_ID_RAW.split(",") if x.strip().isdigit()]
 
-# Constants
-DB_NAME = "bot.db"
+# Constants — FIXED: Each on separate line
 DEFAULT_MODEL = "openai/gpt-4o-mini"
-DEFAULT_TEMP = 0.7DEFAULT_MAX_TOKENS = 1000
-DEFAULT_TOP_P = 1.0
+DEFAULT_TEMP = 0.7
+DEFAULT_MAX_TOKENS = 1000DEFAULT_TOP_P = 1.0
 FREE_DAILY_LIMIT = 50
 PREMIUM_BADGE = "👑 "
 
@@ -96,8 +95,8 @@ class DatabaseManager:
         """)
 
         # Chat History Table
-        cursor.execute("""            CREATE TABLE IF NOT EXISTS history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS history (                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
                 role TEXT,
                 content TEXT,
@@ -110,7 +109,7 @@ class DatabaseManager:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS premium_users (
                 user_id INTEGER PRIMARY KEY,
-                plan_type TEXT, -- '1month', '3month', 'lifetime'
+                plan_type TEXT,
                 start_date TIMESTAMP,
                 expiry_date TIMESTAMP,
                 is_active INTEGER DEFAULT 1,
@@ -125,7 +124,7 @@ class DatabaseManager:
                 user_id INTEGER,
                 amount REAL,
                 currency TEXT,
-                status TEXT, -- 'PENDING', 'SUCCESS', 'FAILED'
+                status TEXT,
                 plan_type TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 completed_at TIMESTAMP,
@@ -133,7 +132,7 @@ class DatabaseManager:
             )
         """)
 
-        # Config Table (Key-Value store for bot settings)
+        # Config Table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
@@ -145,8 +144,8 @@ class DatabaseManager:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS admins (
                 user_id INTEGER PRIMARY KEY,
-                role TEXT DEFAULT 'admin' -- 'owner', 'admin', 'moderator'            )
-        """)
+                role TEXT DEFAULT 'admin'
+            )        """)
 
         # Coupons Table
         cursor.execute("""
@@ -194,8 +193,8 @@ class DatabaseManager:
                 ("bot_status", "on")
             ]
             cursor.executemany("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", defaults)
-        conn.commit()
-        conn.close()
+
+        conn.commit()        conn.close()
 
     # --- User Methods ---
     def add_user(self, user_id: int, username: str, first_name: str, referred_by: int = None):
@@ -207,13 +206,9 @@ class DatabaseManager:
                 INSERT INTO users (user_id, username, first_name, referral_code, referred_by)
                 VALUES (?, ?, ?, ?, ?)
             """, (user_id, username, first_name, ref_code, referred_by))
-            
-            # If referred, increment referrer count logic could go here or in separate table
-            # For simplicity, we just store the link.
-            
             conn.commit()
         except sqlite3.IntegrityError:
-            pass # User exists
+            pass
         finally:
             conn.close()
 
@@ -244,12 +239,11 @@ class DatabaseManager:
         """, (today, today, today, user_id))
         conn.commit()
         conn.close()
+
     def reset_daily_messages(self):
-        # Called periodically or on check
         today = datetime.date.today().isoformat()
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET messages_today = 0, last_reset_date = ? WHERE last_reset_date != ?", (today, today))
+        cursor = conn.cursor()        cursor.execute("UPDATE users SET messages_today = 0, last_reset_date = ? WHERE last_reset_date != ?", (today, today))
         conn.commit()
         conn.close()
 
@@ -292,20 +286,19 @@ class DatabaseManager:
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute("UPDATE premium_users SET is_active = 0 WHERE user_id = ?", (user_id,))
-        conn.commit()        conn.close()
+        conn.commit()
+        conn.close()
 
     # --- History Methods ---
     def add_history(self, user_id: int, role: str, content: str):
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO history (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, content))
+        cursor = conn.cursor()        cursor.execute("INSERT INTO history (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, content))
         conn.commit()
         conn.close()
 
     def get_history(self, user_id: int, limit: int = 10):
         conn = self.get_connection()
         cursor = conn.cursor()
-        # Get last N messages, ordered by ID asc to maintain conversation flow
         cursor.execute("""
             SELECT role, content FROM history 
             WHERE user_id = ? 
@@ -313,7 +306,6 @@ class DatabaseManager:
         """, (user_id, limit))
         rows = cursor.fetchall()
         conn.close()
-        # Reverse to get chronological order
         return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
 
     def clear_history(self, user_id: int):
@@ -341,14 +333,14 @@ class DatabaseManager:
 
     # --- Payment Methods ---
     def add_payment(self, payment_id: str, user_id: int, amount: float, currency: str, plan_type: str):
-        conn = self.get_connection()        cursor = conn.cursor()
+        conn = self.get_connection()
+        cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO payments (payment_id, user_id, amount, currency, status, plan_type)
             VALUES (?, ?, ?, ?, 'PENDING', ?)
         """, (payment_id, user_id, amount, currency, plan_type))
         conn.commit()
         conn.close()
-
     def update_payment_status(self, payment_id: str, status: str):
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -391,6 +383,7 @@ class DatabaseManager:
         
         conn.close()
         return stats
+
     def get_all_users(self):
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -398,7 +391,6 @@ class DatabaseManager:
         users = [row[0] for row in cursor.fetchall()]
         conn.close()
         return users
-
     def ban_user(self, user_id: int):
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -427,7 +419,7 @@ class AIClient:
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/user/bot", # Required by OpenRouter
+            "HTTP-Referer": "https://github.com/user/bot",
             "X-Title": "Telegram AI Bot"
         }
 
@@ -439,15 +431,15 @@ class AIClient:
             "max_tokens": max_tokens,
             "top_p": top_p
         }
-                try:
+        
+        try:
             response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
             response.raise_for_status()
             data = response.json()
             
             if 'choices' in data and len(data['choices']) > 0:
                 return data['choices'][0]['message']['content']
-            else:
-                logger.error(f"OpenRouter API Error: {data}")
+            else:                logger.error(f"OpenRouter API Error: {data}")
                 return "Sorry, I encountered an error processing your request."
                 
         except Exception as e:
@@ -464,9 +456,7 @@ class PaymentClient:
     def __init__(self):
         self.app_id = CASHFREE_APP_ID
         self.secret_key = CASHFREE_SECRET_KEY
-        # Use sandbox for testing, production for live
-        self.base_url = "https://sandbox.cashfree.com/pg" 
-        # To go live, change to: "https://api.cashfree.com/pg"
+        self.base_url = "https://sandbox.cashfree.com/pg"  # Change to https://api.cashfree.com/pg for production
 
     def create_order(self, order_id: str, amount: float, customer_name: str, customer_phone: str, customer_email: str) -> dict:
         url = f"{self.base_url}/orders"
@@ -488,7 +478,8 @@ class PaymentClient:
                 "customer_phone": customer_phone or "9999999999"
             },
             "order_meta": {
-                "return_url": f"https://t.me/{TELEGRAM_BOT_TOKEN.split(':')[0]}?start=payment_success" # Dummy return for bot context            }
+                "return_url": f"https://t.me/{TELEGRAM_BOT_TOKEN.split(':')[0]}?start=payment_success"
+            }
         }
         
         try:
@@ -498,7 +489,6 @@ class PaymentClient:
         except Exception as e:
             logger.error(f"Cashfree Order Creation Failed: {e}")
             return None
-
     def verify_payment(self, order_id: str) -> dict:
         url = f"{self.base_url}/orders/{order_id}"
         headers = {
@@ -537,7 +527,7 @@ def check_force_join(update: Update) -> bool:
     
     try:
         member = update.effective_chat.get_member(update.effective_user.id)
-        # Check if member status is creator, administrator, or member        if member.status in ['creator', 'administrator', 'member']:
+        if member.status in ['creator', 'administrator', 'member']:
             return True
     except Exception:
         pass
@@ -547,8 +537,7 @@ def check_force_join(update: Update) -> bool:
 def get_plan_details(plan: str):
     plans = {
         "1month": {"price": 199, "days": 30, "name": "1 Month God Mode"},
-        "3month": {"price": 499, "days": 90, "name": "3 Months God Mode"},
-        "lifetime": {"price": 1499, "days": 36500, "name": "Lifetime God Mode"}
+        "3month": {"price": 499, "days": 90, "name": "3 Months God Mode"},        "lifetime": {"price": 1499, "days": 36500, "name": "Lifetime God Mode"}
     }
     return plans.get(plan, plans["1month"])
 
@@ -568,7 +557,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Bot is currently under maintenance. Please try again later.")
         return
 
-    # Check Force Join
     if not check_force_join(update):
         channel = db.get_config("force_join_channel")
         await update.message.reply_text(
@@ -586,20 +574,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("🤖 AI Chat", callback_data="menu_ai")],
-        [InlineKeyboardButton("👑 Buy Premium", callback_data="menu_premium")],        [InlineKeyboardButton("👤 My Profile", callback_data="menu_profile")],
+        [InlineKeyboardButton("👑 Buy Premium", callback_data="menu_premium")],
+        [InlineKeyboardButton("👤 My Profile", callback_data="menu_profile")],
         [InlineKeyboardButton("📊 Plans & Pricing", callback_data="menu_plans")],
         [InlineKeyboardButton("🆘 Help & Support", callback_data="menu_help")]
     ]
     
-    # Social Links
     social_row = []
     yt = db.get_config("youtube_link")
     ig = db.get_config("instagram_link")
     grp = db.get_config("group_link")
     
     if yt: social_row.append(InlineKeyboardButton("YouTube", url=yt))
-    if ig: social_row.append(InlineKeyboardButton("Instagram", url=ig))
-    if grp: social_row.append(InlineKeyboardButton("Support Group", url=grp))
+    if ig: social_row.append(InlineKeyboardButton("Instagram", url=ig))    if grp: social_row.append(InlineKeyboardButton("Support Group", url=grp))
     
     if social_row:
         keyboard.append(social_row)
@@ -635,7 +622,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    # Ignore commands handled elsewhere    if update.message.text.startswith('/'):
+    if update.message.text.startswith('/'):
         return
 
     if is_banned(user.id):
@@ -649,8 +636,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         channel = db.get_config("force_join_channel")
         await update.message.reply_text(f"Please join @{channel} to chat.")
         return
-
-    # Check Limits
     is_prem = db.is_premium(user.id)
     user_data = db.get_user(user.id)
     
@@ -666,36 +651,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    # Show Typing Indicator
     await context.bot.send_chat_action(chat_id=user.id, action=ChatAction.TYPING)
 
-    # Prepare Context
     system_prompt = db.get_config("system_prompt")
     model = db.get_config("current_model")
     temp = float(db.get_config("temperature"))
     max_tokens = int(db.get_config("max_tokens"))
     top_p = float(db.get_config("top_p"))
 
-    history = db.get_history(user.id, limit=10) # Last 10 messages for context
+    history = db.get_history(user.id, limit=10)
     
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": update.message.text})
 
-    # Save User Message
     db.add_history(user.id, "user", update.message.text)
     db.update_last_active(user.id)
-    # Call AI
+
     response_text = ai_client.generate_response(messages, model, temp, max_tokens, top_p)
 
-    # Save AI Response
     db.add_history(user.id, "assistant", response_text)
 
-    # Reply
     await update.message.reply_text(response_text, parse_mode=ParseMode.MARKDOWN)
 
 # ==========================================================
-# CALLBACK QUERY HANDLER (UI NAVIGATION)
+# CALLBACK QUERY HANDLER
 # ==========================================================
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -704,8 +684,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id = query.from_user.id
     data = query.data
-
-    # --- Main Menu Navigation ---
     if data == "start_retry":
         if check_force_join(update):
             await query.edit_message_text("Thanks for joining! How can I help you?", reply_markup=None)
@@ -714,14 +692,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("You haven't joined the channel yet.")
 
     elif data == "menu_ai":
-        await query.edit_message_text("🤖 *AI Chat Active*\n\nJust send me a message to start chatting!", parse_mode=ParseMode.MARKDOWN)
+        await query.edit_message_text(" *AI Chat Active*\n\nJust send me a message to start chatting!", parse_mode=ParseMode.MARKDOWN)
 
     elif data == "menu_profile":
         user = db.get_user(user_id)
         is_prem = db.is_premium(user_id)
         plan_status = "👑 God Mode Active" if is_prem else "Free Plan"
         
-        # Get Expiry if premium
         expiry_str = "N/A"
         if is_prem:
             conn = db.get_connection()
@@ -733,12 +710,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 expiry_str = row[0].split('T')[0]
 
         text = (
-            f"👤 *Profile*\n\n"            f"*ID:* `{user_id}`\n"
+            f"👤 *Profile*\n\n"
+            f"*ID:* `{user_id}`\n"
             f"*Name:* {user['first_name']}\n"
             f"*Plan:* {plan_status}\n"
             f"*Expiry:* {expiry_str}\n"
             f"*Messages Today:* {user['messages_today']}/{FREE_DAILY_LIMIT}\n"
-            f"*Referrals:* 0" # Simplified for now
+            f"*Referrals:* 0"
         )
         
         kb = [[InlineKeyboardButton("Back", callback_data="start_back")]]
@@ -755,25 +733,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
 
     elif data == "menu_help":
-        text = "For support, please contact @SupportUser or use /support command."
-        await query.edit_message_text(text)
+        text = "For support, please contact @SupportUser or use /support command."        await query.edit_message_text(text)
 
     elif data == "start_back":
         await start_command(update, context)
 
-    # --- Buying Logic ---
     elif data.startswith("buy_"):
         plan_key = data.split("_")[1]
         plan = get_plan_details(plan_key)
         
-        # Create Order ID
         order_id = f"ORD_{user_id}_{int(time.time())}"
-        
-        # Add to DB
         db.add_payment(order_id, user_id, plan['price'], "INR", plan_key)
         
-        # Create Cashfree Order
-        # Note: In real prod, fetch user phone/email from DB or ask via conversation
         cf_response = payment_client.create_order(
             order_id=order_id,
             amount=plan['price'],
@@ -782,17 +753,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             customer_email=""
         )
         
-        if cf_response and 'payment_session_id' in cf_response:            session_id = cf_response['payment_session_id']
-            payment_link = f"https://test.cashfree.com/pg/v2/payment-pages/{session_id}" # Sandbox link structure varies, usually redirect_url is provided
-            
-            # Cashfree SDK usually returns a redirect_url or session_id to construct URL
-            # For standard PG flow:
+        if cf_response and 'payment_session_id' in cf_response:
+            session_id = cf_response['payment_session_id']
             redirect_url = cf_response.get('redirect_url', '')
             
             if redirect_url:
                 kb = [[InlineKeyboardButton("Pay Now 💳", url=redirect_url)]]
                 await query.edit_message_text(
-                    f"💰 *Order Created*\n\nPlan: {plan['name']}\nAmount: ₹{plan['price']}\n\nClick below to pay. After payment, your premium will activate automatically.",
+                    f" *Order Created*\n\nPlan: {plan['name']}\nAmount: ₹{plan['price']}\n\nClick below to pay. After payment, your premium will activate automatically.",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup(kb)
                 )
@@ -801,7 +769,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("Payment gateway error. Please contact admin.")
 
-    # --- Admin Panel Checks ---
     elif data.startswith("admin_"):
         if not is_admin(user_id):
             await query.answer("Access Denied", show_alert=True)
@@ -815,8 +782,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Active Today: {stats['active_today']}\n"
                 f"Premium Users: {stats['premium_users']}\n"
                 f"Total Revenue: ₹{stats['revenue']}\n"
-                f"Total Chats: {stats['total_chats']}"
-            )
+                f"Total Chats: {stats['total_chats']}"            )
             kb = [
                 [InlineKeyboardButton("Users", callback_data="admin_users"), InlineKeyboardButton("Broadcast", callback_data="admin_broadcast")],
                 [InlineKeyboardButton("AI Settings", callback_data="admin_ai"), InlineKeyboardButton("Payments", callback_data="admin_payments")],
@@ -831,7 +797,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kb = [
                 [InlineKeyboardButton("Change Model", callback_data="admin_setmodel")],
                 [InlineKeyboardButton("Change Prompt", callback_data="admin_setprompt")],
-                [InlineKeyboardButton("Back", callback_data="admin_panel")]            ]
+                [InlineKeyboardButton("Back", callback_data="admin_panel")]
+            ]
             await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(kb))
 
 # ==========================================================
@@ -864,7 +831,6 @@ async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args)
     db.set_config("system_prompt", prompt)
     await update.message.reply_text("✅ System prompt updated.")
-
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
@@ -880,7 +846,8 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text(f"Starting broadcast to {len(users)} users...")
     
     for uid in users:
-        try:            await context.bot.send_message(chat_id=uid, text=message, parse_mode=ParseMode.MARKDOWN)
+        try:
+            await context.bot.send_message(chat_id=uid, text=message, parse_mode=ParseMode.MARKDOWN)
             sent += 1
         except Exception as e:
             failed += 1
@@ -913,8 +880,7 @@ async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        return
-    if not context.args:
+        return    if not context.args:
         return
     uid = int(context.args[0])
     db.unban_user(uid)
@@ -929,19 +895,16 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Total Users: {stats['total_users']}\n"
         f"Active Today: {stats['active_today']}\n"
         f"Premium Users: {stats['premium_users']}\n"
-        f"Revenue: ₹{stats['revenue']}\n"        f"Total Chats: {stats['total_chats']}"
+        f"Revenue: ₹{stats['revenue']}\n"
+        f"Total Chats: {stats['total_chats']}"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 # ==========================================================
-# PAYMENT VERIFICATION (Manual Check / Callback)
+# PAYMENT VERIFICATION
 # ==========================================================
 
 async def check_payment_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Since we don't have webhooks, we can provide a command /checkpayment <order_id>
-    Or ideally, the user clicks a button after paying which triggers this.
-    """
     if not context.args:
         await update.message.reply_text("Usage: /checkpayment <order_id>")
         return
@@ -953,7 +916,6 @@ async def check_payment_status(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("Order not found or already processed.")
         return
     
-    # Verify with Cashfree
     status_data = payment_client.verify_payment(order_id)
     
     if status_data and status_data.get('order_status') == 'PAID':
@@ -967,20 +929,17 @@ async def check_payment_status(update: Update, context: ContextTypes.DEFAULT_TYP
 # MAIN EXECUTION
 # ==========================================================
 
-def main():
-    if not TELEGRAM_BOT_TOKEN:
+def main():    if not TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
         sys.exit(1)
 
-    # Create Application
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # Handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("newchat", new_chat))    application.add_handler(CommandHandler("checkpayment", check_payment_status))
+    application.add_handler(CommandHandler("newchat", new_chat))
+    application.add_handler(CommandHandler("checkpayment", check_payment_status))
     
-    # Admin Handlers
     application.add_handler(CommandHandler("setmodel", set_model))
     application.add_handler(CommandHandler("setprompt", set_prompt))
     application.add_handler(CommandHandler("broadcast", broadcast))
@@ -990,20 +949,16 @@ def main():
     application.add_handler(CommandHandler("stats", stats_cmd))
     application.add_handler(CommandHandler("admin", admin_panel_cmd))
 
-    # Message Handler (Must be last to avoid catching commands)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Callback Query Handler
     application.add_handler(CallbackQueryHandler(button_callback))
 
-    # Error Handler
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(msg="Exception while handling an update:", exc_info=context.error)
         
     application.add_error_handler(error_handler)
 
     logger.info("Bot is starting in Polling mode...")
-    # Run the bot until the user presses Ctrl-C
+    print("✅ Bot started successfully!")  # Added for Render log visibility
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
